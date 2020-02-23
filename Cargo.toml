@@ -1,0 +1,7 @@
+[package]
+name = "rtos"
+version = "0.1.0"
+authors = ["Amanita Muscaria"]
+edition = "2018"
+
+[dependencies]
