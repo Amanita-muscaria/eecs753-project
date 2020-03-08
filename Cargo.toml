@@ -5,3 +5,9 @@ authors = ["Amanita Muscaria"]
 edition = "2018"
 
 [dependencies]
+cortex-m-rt = "0.6.12"
+cortex-m = "0.6.2"
+
+[dependencies.stm32f3]
+version = "0.10.0"
+features = ["stm32f303", "rt"]
