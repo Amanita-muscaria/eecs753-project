@@ -4,6 +4,7 @@
 extern crate rtos;
 use f3::l3gd20::MODE as g_spi_mode;
 use rtos::core::*;
+use rtos::core::{CorePeripherals, DevPeripherals, SCB};
 use rtos::tasks::*;
 use rtos::tasks::{accel::AccelTask, gyro::GyroTask, led::LedTask};
 
@@ -13,12 +14,12 @@ static mut LEDS: LedTask = LedTask::default();
 
 static mut TASKS: [&'static dyn Task; 3] = [unsafe { &GYRO }, unsafe { &ACCEL }, unsafe { &LEDS }];
 
-static mut INT: Option<NVIC> = None;
+static mut SCB: Option<SCB> = None;
 
 #[entry]
 unsafe fn main() -> ! {
-    let cp = cortex_m::Peripherals::take().unwrap();
-    let dp = stm32f30x::Peripherals::take().unwrap();
+    let cp = CorePeripherals::take().unwrap();
+    let dp = DevPeripherals::take().unwrap();
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
@@ -83,9 +84,13 @@ unsafe fn main() -> ! {
     LEDS.init(p0, p1, p2, p3, p4, p5, p6, p7, delay);
     GYRO.init(spi, nss);
 
-    INT = Some(cp.NVIC);
+    SCB = Some(cp.SCB);
 
     loop {}
+}
+
+fn wait() {
+    wfi();
 }
 
 #[allow(non_snake_case)]

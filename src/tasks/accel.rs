@@ -28,11 +28,12 @@ impl AccelTask {
         accel.accel_odr(AccelOdr::Hz10).unwrap();
         accel.set_accel_sensitivity(Sensitivity::G1).unwrap();
         self.accel = Some(accel);
+        self.state = TaskState::Ready;
     }
 
     pub const fn default() -> Self {
         AccelTask {
-            state: TaskState::Ready,
+            state: TaskState::PreInit,
             stk_ptr: STACK.as_ptr() as *mut u8,
             prd: PERIOD,
             accel: None,

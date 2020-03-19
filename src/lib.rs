@@ -7,12 +7,10 @@ extern crate cortex_m;
 extern crate cortex_m_rt;
 extern crate embedded_hal;
 extern crate f3;
-extern crate stm32f3;
 
 pub mod core {
     pub use cortex_m::{
-        asm,
-        peripheral::{nvic, NVIC},
+        asm::{svc, wfi},
         register,
     };
     pub use cortex_m_rt::{entry, exception, pre_init};
@@ -33,13 +31,9 @@ pub mod core {
         prelude::*,
         rcc::RccExt,
         spi::Spi,
-        stm32f30x,
-        stm32f30x::{Interrupt, I2C1, SPI1},
+        stm32f30x::{CorePeripherals, Peripherals as DevPeripherals, I2C1, SCB, SPI1},
         time::U32Ext,
     };
-    pub mod stm_p {
-        pub use stm32f3::stm32f303::*;
-    }
 }
 
 pub mod tasks {
@@ -54,6 +48,7 @@ pub mod tasks {
 
     #[derive(Copy, Clone)]
     pub enum TaskState {
+        PreInit,
         Ready,
         Running,
         Suspended,

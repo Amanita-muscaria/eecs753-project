@@ -22,6 +22,7 @@ impl GyroTask {
     pub fn init(&mut self, s: GyroSpi, mut cs: PE3<Output<PushPull>>) {
         cs.set_high().unwrap();
         self.gyro = Some(L3gd20::new(s, cs).unwrap());
+        self.state = TaskState::Ready;
     }
 
     pub const fn default() -> Self {
@@ -29,7 +30,7 @@ impl GyroTask {
             gyro: None,
             buff: [I16x3 { x: 0, y: 0, z: 0 }; BUFF_CAP],
             buff_head: 0,
-            state: TaskState::Ready,
+            state: TaskState::PreInit,
             stk_ptr: STACK.as_ptr() as *mut u8,
             prd: PERIOD,
         }
