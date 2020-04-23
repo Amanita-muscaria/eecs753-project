@@ -6,9 +6,13 @@ edition = "2018"
 
 [dependencies]
 cortex-m-rt = "0.6.12"
-cortex-m = {path="../cortex-m", features=["inline-asm"]}
 embedded-hal = "0.2.3"
+heapless = "0.5.4"
 
 [dependencies.f3]
 features = ["rt"]
 version = "0.6.1"
+
+[dependencies.cortex-m]
+features=["inline-asm"]
+version = "0.6.2"

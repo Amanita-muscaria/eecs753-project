@@ -1,10 +1,12 @@
 #![no_std]
 #![no_main]
+#![feature(let_chains)]
 
 extern crate rtos;
 use f3::l3gd20::MODE as g_spi_mode;
 use rtos::core::*;
-use rtos::core::{CorePeripherals, DevPeripherals, SCB};
+use rtos::core::{CorePeripherals, DevPeripherals, Timer, SCB, SYST, TIM2};
+use rtos::task_man::{TaskID, TaskMan};
 use rtos::tasks::*;
 use rtos::tasks::{accel::AccelTask, gyro::GyroTask, led::LedTask};
 
@@ -12,13 +14,15 @@ static mut GYRO: GyroTask = GyroTask::default();
 static mut ACCEL: AccelTask = AccelTask::default();
 static mut LEDS: LedTask = LedTask::default();
 
-static mut TASKS: [&'static dyn Task; 3] = [unsafe { &GYRO }, unsafe { &ACCEL }, unsafe { &LEDS }];
+static TASKS: [&dyn Task; 3] = [unsafe { &GYRO }, unsafe { &ACCEL }, unsafe { &LEDS }];
 
-static mut SCB: Option<SCB> = None;
+static mut SYSTICK: Option<SYST> = None;
+
+static mut TASK_MAN: Option<TaskMan> = None;
 
 #[entry]
 unsafe fn main() -> ! {
-    let cp = CorePeripherals::take().unwrap();
+    let mut cp = CorePeripherals::take().unwrap();
     let dp = DevPeripherals::take().unwrap();
     let mut flash = dp.FLASH.constrain();
     let mut rcc = dp.RCC.constrain();
@@ -26,7 +30,6 @@ unsafe fn main() -> ! {
     let mut gpioa = dp.GPIOA.split(&mut rcc.ahb);
     let mut gpiob = dp.GPIOB.split(&mut rcc.ahb);
     let mut gpioe = dp.GPIOE.split(&mut rcc.ahb);
-    let delay = Delay::new(cp.SYST, clocks);
 
     let scl = gpiob.pb6.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
     let sda = gpiob.pb7.into_af4(&mut gpiob.moder, &mut gpiob.afrl);
@@ -79,27 +82,77 @@ unsafe fn main() -> ! {
         .pe15
         .into_push_pull_output(&mut gpioe.moder, &mut gpioe.otyper)
         .downgrade();
-
     ACCEL.init(i2c);
-    LEDS.init(p0, p1, p2, p3, p4, p5, p6, p7, delay);
+    LEDS.init(
+        p0,
+        p1,
+        p2,
+        p3,
+        p4,
+        p5,
+        p6,
+        p7,
+        Timer::tim2(dp.TIM2, Hertz(0), clocks, &mut rcc.apb1),
+    );
     GYRO.init(spi, nss);
 
-    SCB = Some(cp.SCB);
+    TASK_MAN = Some(TaskMan::new(TASKS));
 
-    loop {}
-}
+    cp.SYST.set_reload(TASKS[0].get_prd());
+    cp.SYST.clear_current();
+    cp.SYST.enable_counter();
+    SYSTICK = Some(cp.SYST);
 
-fn wait() {
-    wfi();
+    SCB::set_pendsv();
+    loop {
+        wfi();
+    }
 }
 
 #[allow(non_snake_case)]
 #[exception]
-fn SysTick() {}
+unsafe fn SysTick() {
+    let mut tm = TASK_MAN.take().unwrap();
+    let current = tm.get_pri(TaskID::Current);
+    let next = tm.get_pri(TaskID::NextRelease).unwrap();
+    tm.release_next();
+
+    TASK_MAN.replace(tm);
+
+    if let Some(c) = current {
+        if c > next {
+            SCB::set_pendsv();
+        }
+    }
+}
 
 #[allow(non_snake_case)]
 #[exception]
-fn PendSV() {}
+unsafe fn PendSV() {
+    let tm = TASK_MAN.take().unwrap();
+    let current = tm.get(TaskID::Current);
+    let next = if let Some(i) = tm.next_to_run() {
+        tm.get(TaskID::ID(i))
+    } else {
+        None
+    };
+
+    if let Some(c) = current {
+        //save into current task
+    }
+
+    TASK_MAN.replace(tm);
+}
+
+unsafe fn task_done() {
+    let mut tm = TASK_MAN.take().unwrap();
+    tm.set_state(TaskID::Current, TaskState::Done);
+    tm.set_next_release(TaskID::Current, SYST::get_current());
+
+    TASK_MAN.replace(tm);
+
+    SCB::set_pendsv();
+}
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

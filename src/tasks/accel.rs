@@ -1,5 +1,6 @@
 use crate::core::{I2c, I2C1, PB6, PB7};
 use crate::tasks::{Task, TaskState};
+use core::cell::Cell;
 use f3::{
     hal::gpio::AF4,
     lsm303dlhc::{AccelOdr, I16x3, Sensitivity},
@@ -7,16 +8,16 @@ use f3::{
 };
 
 const STK_SIZE: usize = 512;
-const PERIOD: usize = 0;
+const PERIOD: u32 = 11;
 const STACK: [u8; STK_SIZE] = [0; STK_SIZE];
 const BUFF_CAP: usize = 16;
 
 type AccelI2c = I2c<I2C1, (PB6<AF4>, PB7<AF4>)>;
 
 pub struct AccelTask {
-    state: TaskState,
-    stk_ptr: *mut u8,
-    prd: usize,
+    state: Cell<TaskState>,
+    stk_ptr: Cell<*mut u8>,
+    prd: u32,
     accel: Option<Lsm303dlhc>,
     buff: [I16x3; BUFF_CAP],
     buff_head: usize,
@@ -28,13 +29,13 @@ impl AccelTask {
         accel.accel_odr(AccelOdr::Hz10).unwrap();
         accel.set_accel_sensitivity(Sensitivity::G1).unwrap();
         self.accel = Some(accel);
-        self.state = TaskState::Ready;
+        self.state = Cell::new(TaskState::Ready);
     }
 
     pub const fn default() -> Self {
         AccelTask {
-            state: TaskState::PreInit,
-            stk_ptr: STACK.as_ptr() as *mut u8,
+            state: Cell::new(TaskState::PreInit),
+            stk_ptr: Cell::new(STACK.as_ptr() as *mut u8),
             prd: PERIOD,
             accel: None,
             buff: [I16x3 { x: 0, y: 0, z: 0 }; BUFF_CAP],
@@ -55,22 +56,24 @@ impl Task for AccelTask {
     }
 
     fn get_stk_ptr(&self) -> *mut u8 {
-        self.stk_ptr
+        self.stk_ptr.get()
     }
 
-    fn update_stk_ptr(&mut self, p: *mut u8) {
-        self.stk_ptr = p;
+    fn update_stk_ptr(&self, p: *mut u8) {
+        self.stk_ptr.set(p);
     }
 
     fn get_state(&self) -> TaskState {
-        self.state
+        self.state.get()
     }
 
-    fn set_state(&mut self, s: TaskState) {
-        self.state = s;
+    fn set_state(&self, s: TaskState) {
+        self.state.set(s);
     }
 
-    fn get_prd(&self) -> usize {
+    fn get_prd(&self) -> u32 {
         self.prd
     }
 }
+
+unsafe impl Sync for AccelTask {}

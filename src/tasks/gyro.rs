@@ -1,9 +1,10 @@
 use crate::core::{Output, OutputPin, PushPull, Spi, PA5, PA6, PA7, PE3, SPI1};
 use crate::tasks::{Task, TaskState};
+use core::cell::Cell;
 use f3::{hal::gpio::AF5, l3gd20::I16x3, L3gd20};
 
 const STK_SIZE: usize = 512;
-const PERIOD: usize = 0;
+const PERIOD: u32 = 5;
 const STACK: [u8; STK_SIZE] = [0; STK_SIZE];
 const BUFF_CAP: usize = 8;
 
@@ -13,16 +14,16 @@ pub struct GyroTask {
     gyro: Option<L3gd20>,
     buff: [I16x3; BUFF_CAP],
     buff_head: usize,
-    state: TaskState,
-    stk_ptr: *mut u8,
-    prd: usize,
+    state: Cell<TaskState>,
+    stk_ptr: Cell<*mut u8>,
+    prd: u32,
 }
 
 impl GyroTask {
     pub fn init(&mut self, s: GyroSpi, mut cs: PE3<Output<PushPull>>) {
         cs.set_high().unwrap();
         self.gyro = Some(L3gd20::new(s, cs).unwrap());
-        self.state = TaskState::Ready;
+        self.state.set(TaskState::Ready);
     }
 
     pub const fn default() -> Self {
@@ -30,8 +31,8 @@ impl GyroTask {
             gyro: None,
             buff: [I16x3 { x: 0, y: 0, z: 0 }; BUFF_CAP],
             buff_head: 0,
-            state: TaskState::PreInit,
-            stk_ptr: STACK.as_ptr() as *mut u8,
+            state: Cell::new(TaskState::PreInit),
+            stk_ptr: Cell::new(STACK.as_ptr() as *mut u8),
             prd: PERIOD,
         }
     }
@@ -49,22 +50,24 @@ impl Task for GyroTask {
     }
 
     fn get_stk_ptr(&self) -> *mut u8 {
-        self.stk_ptr
+        self.stk_ptr.get()
     }
 
-    fn update_stk_ptr(&mut self, p: *mut u8) {
-        self.stk_ptr = p;
+    fn update_stk_ptr(&self, p: *mut u8) {
+        self.stk_ptr.set(p);
     }
 
     fn get_state(&self) -> TaskState {
-        self.state
+        self.state.get()
     }
 
-    fn set_state(&mut self, s: TaskState) {
-        self.state = s;
+    fn set_state(&self, s: TaskState) {
+        self.state.set(s);
     }
 
-    fn get_prd(&self) -> usize {
+    fn get_prd(&self) -> u32 {
         self.prd
     }
 }
+
+unsafe impl Sync for GyroTask {}
