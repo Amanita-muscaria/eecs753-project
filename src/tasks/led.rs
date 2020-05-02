@@ -1,16 +1,17 @@
-use crate::core::{CountDown, Hertz, Output, OutputPin, PEx, PushPull, Timer, TIM2};
+use crate::core::{wfe, CountDown, Hertz, Output, OutputPin, PEx, PushPull, Timer, SCB, TIM2};
 use crate::tasks::{Task, TaskState};
 use core::cell::Cell;
+use core::mem::transmute;
 
 const STK_SIZE: usize = 512;
 const PERIOD: u32 = 21;
-const STACK: [u8; STK_SIZE] = [0; STK_SIZE];
+static mut LED_STACK: [u32; STK_SIZE] = [0; STK_SIZE];
 
 type LedPin = PEx<Output<PushPull>>;
 
 pub struct LedTask {
     state: Cell<TaskState>,
-    stk_ptr: Cell<*mut u8>,
+    stk_ptr: Cell<*mut u32>,
     prd: u32,
     leds: Option<[Led; 8]>,
     d: Option<Timer<TIM2>>,
@@ -18,7 +19,7 @@ pub struct LedTask {
 
 impl LedTask {
     #[allow(clippy::too_many_arguments)]
-    pub fn init(
+    pub unsafe fn init(
         &mut self,
         p0: LedPin,
         p1: LedPin,
@@ -42,12 +43,16 @@ impl LedTask {
         ];
         self.leds = Some(l);
         self.d = Some(d);
+        self.stk_ptr
+            .set(LED_STACK.as_ptr().offset((STK_SIZE - 16) as isize) as *mut u32);
+        *(self.stk_ptr.get()) = transmute::<*mut LedTask, u32>(self);
+        *(self.stk_ptr.get().offset(14)) = LedTask::run as u32;
     }
 
     pub const fn default() -> Self {
         Self {
             state: Cell::new(TaskState::PreInit),
-            stk_ptr: Cell::new(STACK.as_ptr() as *mut u8),
+            stk_ptr: Cell::new(0 as *mut u32),
             prd: PERIOD,
             leds: None,
             d: None,
@@ -57,24 +62,29 @@ impl LedTask {
 
 impl Task for LedTask {
     fn run(&mut self) {
-        let leds = self.leds.as_mut().unwrap();
-        let mut d = self.d.as_mut().unwrap();
-        for l in leds.iter_mut() {
-            l.on();
-            wait(&mut d, 10);
-        }
+        loop {
+            self.state.set(TaskState::Running);
+            let leds = self.leds.as_mut().unwrap();
+            let mut d = self.d.as_mut().unwrap();
+            for l in leds.iter_mut() {
+                l.on();
+                wait(&mut d, 10);
+            }
 
-        for l in leds.iter_mut().rev() {
-            l.off();
-            wait(&mut d, 10);
+            for l in leds.iter_mut().rev() {
+                l.off();
+                wait(&mut d, 10);
+            }
+            self.state.set(TaskState::Done);
+            SCB::set_pendsv();
         }
     }
 
-    fn get_stk_ptr(&self) -> *mut u8 {
+    fn get_stk_ptr(&self) -> *mut u32 {
         self.stk_ptr.get()
     }
 
-    fn update_stk_ptr(&self, p: *mut u8) {
+    fn update_stk_ptr(&self, p: *mut u32) {
         self.stk_ptr.set(p);
     }
 

@@ -3,6 +3,7 @@
 #![feature(asm)]
 #![no_std]
 #![feature(let_chains)]
+#![feature(llvm_asm)]
 
 extern crate cortex_m;
 extern crate cortex_m_rt;
@@ -11,7 +12,10 @@ extern crate f3;
 extern crate heapless;
 
 pub mod core {
-    pub use cortex_m::{asm::wfi, register};
+    pub use cortex_m::{
+        asm::wfe,
+        register::{msp, psp},
+    };
     pub use cortex_m_rt::{entry, exception, pre_init};
     pub use embedded_hal::{
         blocking::delay::{DelayMs, DelayUs},
@@ -41,8 +45,8 @@ pub mod core {
 pub mod tasks {
     pub trait Task: Sync {
         fn run(&mut self);
-        fn get_stk_ptr(&self) -> *mut u8;
-        fn update_stk_ptr(&self, p: *mut u8);
+        fn get_stk_ptr(&self) -> *mut u32;
+        fn update_stk_ptr(&self, p: *mut u32);
         fn get_state(&self) -> TaskState;
         fn set_state(&self, s: TaskState);
         fn get_prd(&self) -> u32;
