@@ -26,9 +26,15 @@ impl GyroTask {
         self.gyro = Some(L3gd20::new(s, cs).unwrap());
         self.state.set(TaskState::Ready);
         self.stk_ptr
-            .set(GYRO_STACK.as_ptr().offset((STK_SIZE - 16) as isize) as *mut u32);
-        *(self.stk_ptr.get()) = transmute::<*mut GyroTask, u32>(self);
-        *(self.stk_ptr.get().offset(14)) = GyroTask::run as u32;
+            .set((&mut GYRO_STACK[STK_SIZE - 10]) as *mut u32);
+
+        self.stk_ptr
+            .get()
+            .write(transmute::<*mut GyroTask, u32>(self));
+        self.stk_ptr.get().offset(6).write(GyroTask::run as u32);
+        // self.stk_ptr.get().offset(5).write(SCB::set_pendsv as u32);
+        self.stk_ptr.get().offset(7).write(0x21000000);
+        self.stk_ptr.set(self.stk_ptr.get().sub(8));
     }
 
     pub const fn default() -> Self {

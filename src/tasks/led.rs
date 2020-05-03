@@ -44,9 +44,15 @@ impl LedTask {
         self.leds = Some(l);
         self.d = Some(d);
         self.stk_ptr
-            .set(LED_STACK.as_ptr().offset((STK_SIZE - 16) as isize) as *mut u32);
-        *(self.stk_ptr.get()) = transmute::<*mut LedTask, u32>(self);
-        *(self.stk_ptr.get().offset(14)) = LedTask::run as u32;
+            .set((&mut LED_STACK[STK_SIZE - 10]) as *mut u32);
+
+        self.stk_ptr
+            .get()
+            .write(transmute::<*mut LedTask, u32>(self));
+        self.stk_ptr.get().offset(6).write(LedTask::run as u32);
+        // self.stk_ptr.get().offset(5).write(SCB::set_pendsv as u32);
+        self.stk_ptr.get().offset(7).write(0x21000000);
+        self.stk_ptr.set(self.stk_ptr.get().sub(8));
     }
 
     pub const fn default() -> Self {

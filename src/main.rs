@@ -97,8 +97,8 @@ unsafe fn main() -> ! {
     GYRO.init(spi, nss);
 
     TASK_MAN = Some(TaskMan::new(TASKS));
-    // let t = SYST::get_ticks_per_10ms() / 100 * TASKS[0].get_prd();
-    cp.SYST.set_reload(25);
+    let t = SYST::get_ticks_per_10ms() / 10 * TASKS[0].get_prd();
+    cp.SYST.set_reload(t);
     cp.SYST.clear_current();
     cp.SYST.enable_counter();
     cp.SYST.enable_interrupt();
@@ -121,11 +121,11 @@ unsafe fn SysTick() {
     let released = tm.get_pri(TaskID::NextRelease).unwrap();
     tm.release_next();
 
-    // let t = SYST::get_ticks_per_10ms();
-    // let next_tick = tm.get_pri(TaskID::NextRelease).unwrap();
-    // st.set_reload(next_tick * t);
-    // st.clear_current();
-    // st.enable_counter();
+    let t = SYST::get_ticks_per_10ms() / 10;
+    let next_tick = tm.get_pri(TaskID::NextRelease).unwrap();
+    st.set_reload(next_tick * t);
+    st.clear_current();
+    st.enable_counter();
     SYSTICK.replace(st);
     TASK_MAN.replace(tm);
 
@@ -154,7 +154,7 @@ unsafe fn PendSV() {
     };
     TASK_MAN.replace(tm);
 
-    if let Some(mut c) = current {
+    if let Some(c) = current {
         llvm_asm! {"
         push {$0}
         mrs r0, psp
@@ -170,13 +170,11 @@ unsafe fn PendSV() {
 
     if let Some(n) = next {
         llvm_asm! {"
-        add r1, $0, #56
-        msr psp, r1
-        mov sp, $0
-        ldmia sp!, {r0-r12} 
-        ldr lr, [sp, #4]
-        add sp, sp, #4
-        bx lr
+        ldmia $0!, {r4-r11}
+        msr psp, $0
+        isb
+        mov r1, #0xFFFFFFFD
+        bx r1
         "
         :
         : "r"(n)
@@ -190,7 +188,7 @@ unsafe fn PendSV() {
 unsafe fn SVCall() {
     SCB::set_pendsv();
 }
-
+#[no_mangle]
 unsafe fn task_done() {
     let mut tm = TASK_MAN.take().unwrap();
     tm.set_state(TaskID::Current, TaskState::Done);
