@@ -1,5 +1,5 @@
-use crate::core::{wfe, I2c, I2C1, PB6, PB7, SCB};
-use crate::tasks::{Task, TaskState};
+use crate::core::{I2c, I2C1, PB6, PB7};
+use crate::tasks::{task_done, Task, TaskState};
 use core::cell::Cell;
 use core::mem::transmute;
 use f3::{
@@ -9,7 +9,7 @@ use f3::{
 };
 
 const STK_SIZE: usize = 512;
-const PERIOD: u32 = 11;
+const PERIOD: u32 = 13;
 static mut ACCEL_STACK: [u32; STK_SIZE] = [0; STK_SIZE];
 const BUFF_CAP: usize = 16;
 
@@ -38,7 +38,6 @@ impl AccelTask {
             .get()
             .write(transmute::<*mut AccelTask, u32>(self));
         self.stk_ptr.get().offset(6).write(AccelTask::run as u32);
-        // self.stk_ptr.get().offset(5).write(SCB::set_pendsv as u32);
         self.stk_ptr.get().offset(7).write(0x21000000);
         self.stk_ptr.set(self.stk_ptr.get().sub(8));
     }
@@ -58,7 +57,6 @@ impl AccelTask {
 impl Task for AccelTask {
     fn run(&mut self) {
         loop {
-            self.state.set(TaskState::Running);
             let a = self.accel.as_mut().unwrap();
             self.buff[self.buff_head] = a.accel().unwrap();
             self.buff_head = if self.buff_head + 1 >= BUFF_CAP {
@@ -66,8 +64,7 @@ impl Task for AccelTask {
             } else {
                 self.buff_head + 1
             };
-            self.state.set(TaskState::Done);
-            SCB::set_pendsv();
+            task_done(1);
         }
     }
 

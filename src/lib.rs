@@ -2,7 +2,6 @@
 #![feature(const_fn)]
 #![feature(asm)]
 #![no_std]
-#![feature(let_chains)]
 #![feature(llvm_asm)]
 
 extern crate cortex_m;
@@ -64,6 +63,20 @@ pub mod tasks {
     pub mod accel;
     pub mod gyro;
     pub mod led;
+
+    fn task_done(id: u32) {
+        unsafe {
+            llvm_asm! {"
+            mov r12, $0
+            svc 0
+            "
+            :
+            : "r"(id)
+            : "r12"
+            : "volatile"
+            }
+        }
+    }
 }
 
 pub mod task_man;

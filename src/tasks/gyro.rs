@@ -1,11 +1,11 @@
-use crate::core::{wfe, Output, OutputPin, PushPull, Spi, PA5, PA6, PA7, PE3, SCB, SPI1};
-use crate::tasks::{Task, TaskState};
+use crate::core::{Output, OutputPin, PushPull, Spi, PA5, PA6, PA7, PE3, SPI1};
+use crate::tasks::{task_done, Task, TaskState};
 use core::cell::Cell;
 use core::mem::transmute;
 use f3::{hal::gpio::AF5, l3gd20::I16x3, L3gd20};
 
 const STK_SIZE: usize = 512;
-const PERIOD: u32 = 5;
+const PERIOD: u32 = 11;
 static mut GYRO_STACK: [u32; STK_SIZE] = [0; STK_SIZE];
 const BUFF_CAP: usize = 8;
 
@@ -32,7 +32,6 @@ impl GyroTask {
             .get()
             .write(transmute::<*mut GyroTask, u32>(self));
         self.stk_ptr.get().offset(6).write(GyroTask::run as u32);
-        // self.stk_ptr.get().offset(5).write(SCB::set_pendsv as u32);
         self.stk_ptr.get().offset(7).write(0x21000000);
         self.stk_ptr.set(self.stk_ptr.get().sub(8));
     }
@@ -52,7 +51,6 @@ impl GyroTask {
 impl Task for GyroTask {
     fn run(&mut self) {
         loop {
-            self.state.set(TaskState::Running);
             let g = self.gyro.as_mut().unwrap();
             self.buff[self.buff_head] = g.gyro().unwrap();
             self.buff_head = if self.buff_head + 1 >= BUFF_CAP {
@@ -60,8 +58,7 @@ impl Task for GyroTask {
             } else {
                 self.buff_head + 1
             };
-            self.state.set(TaskState::Done);
-            SCB::set_pendsv();
+            task_done(0);
         }
     }
 

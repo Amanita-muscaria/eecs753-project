@@ -3,9 +3,10 @@
 #![feature(llvm_asm)]
 
 extern crate rtos;
+use cortex_m::asm::bkpt;
 use f3::l3gd20::MODE as g_spi_mode;
 use rtos::core::*;
-use rtos::core::{CorePeripherals, DevPeripherals, Timer, SCB, SYST, TIM2};
+use rtos::core::{CorePeripherals, DevPeripherals, Timer, SCB, SYST};
 use rtos::task_man::{TaskID, TaskMan};
 use rtos::tasks::*;
 use rtos::tasks::{accel::AccelTask, gyro::GyroTask, led::LedTask};
@@ -96,15 +97,18 @@ unsafe fn main() -> ! {
     );
     GYRO.init(spi, nss);
 
-    TASK_MAN = Some(TaskMan::new(TASKS));
-    let t = SYST::get_ticks_per_10ms() / 10 * TASKS[0].get_prd();
+    let ticks = SYST::get_ticks_per_10ms() / 10;
+    let tm = TaskMan::new(TASKS, ticks);
+    let t = tm.next_release_time();
     cp.SYST.set_reload(t);
     cp.SYST.clear_current();
-    cp.SYST.enable_counter();
     cp.SYST.enable_interrupt();
+    cp.SYST.enable_counter();
+    TASK_MAN = Some(tm);
     SYSTICK = Some(cp.SYST);
 
     SCB::set_pendsv();
+
     loop {
         wfe();
     }
@@ -117,68 +121,31 @@ unsafe fn SysTick() {
     st.disable_counter();
 
     let mut tm = TASK_MAN.take().unwrap();
-    let running = tm.get_pri(TaskID::Current);
-    let released = tm.get_pri(TaskID::NextRelease).unwrap();
-    tm.release_next();
 
-    let t = SYST::get_ticks_per_10ms() / 10;
-    let next_tick = tm.get_pri(TaskID::NextRelease).unwrap();
-    st.set_reload(next_tick * t);
+    tm.update_release(SYST::get_reload());
+
+    let pend = if let Some(c) = tm.get_pri(TaskID::Current) {
+        if let Some(n) = tm.get_pri(TaskID::Next) {
+            n < c
+        } else {
+            false
+        }
+    } else {
+        true
+    };
+
+    let next = tm.next_release_time();
+
+    TASK_MAN.replace(tm);
+
     st.clear_current();
+    st.set_reload(next);
     st.enable_counter();
+
     SYSTICK.replace(st);
-    TASK_MAN.replace(tm);
 
-    if let Some(r) = running {
-        if r > released {
-            SCB::set_pendsv();
-        }
-    }
-}
-
-#[no_mangle]
-#[allow(non_snake_case)]
-#[exception]
-unsafe fn PendSV() {
-    let tm = TASK_MAN.take().unwrap();
-    let current = if let Some(c) = tm.get(TaskID::Current) {
-        Some(c.get_stk_ptr())
-    } else {
-        None
-    };
-    let next = if let Some(i) = tm.next_to_run() {
-        let n = tm.get(TaskID::ID(i)).unwrap();
-        Some(n.get_stk_ptr())
-    } else {
-        None
-    };
-    TASK_MAN.replace(tm);
-
-    if let Some(c) = current {
-        llvm_asm! {"
-        push {$0}
-        mrs r0, psp
-        isb
-        stmdb r0!, {r1-r12}
-        pop {r1}
-        str r0, [r1]
-        "
-        :
-        : "r"(c)
-        }
-    }
-
-    if let Some(n) = next {
-        llvm_asm! {"
-        ldmia $0!, {r4-r11}
-        msr psp, $0
-        isb
-        mov r1, #0xFFFFFFFD
-        bx r1
-        "
-        :
-        : "r"(n)
-        }
+    if pend {
+        SCB::set_pendsv();
     }
 }
 
@@ -186,20 +153,81 @@ unsafe fn PendSV() {
 #[allow(non_snake_case)]
 #[exception]
 unsafe fn SVCall() {
-    SCB::set_pendsv();
-}
-#[no_mangle]
-unsafe fn task_done() {
-    let mut tm = TASK_MAN.take().unwrap();
-    tm.set_state(TaskID::Current, TaskState::Done);
-    tm.set_next_release(TaskID::Current, SYST::get_current());
-
+    let mut _r12 = 0;
+    llvm_asm! {"
+    mov $0, r12
+    "
+    : "=r"(_r12)
+    :
+    : "$0"
+    : "volatile"
+    }
+    let tm = TASK_MAN.take().unwrap();
+    let t = tm.get(TaskID::ID(_r12)).unwrap();
+    t.update_stk_ptr(save());
+    t.set_state(TaskState::Done);
     TASK_MAN.replace(tm);
-
     SCB::set_pendsv();
 }
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
+    bkpt();
     loop {}
+}
+
+#[no_mangle]
+#[allow(non_snake_case)]
+#[exception]
+#[inline(always)]
+unsafe fn PendSV() {
+    let tm = TASK_MAN.take().unwrap();
+    let current = tm.get(TaskID::Current);
+
+    let next = if let Some(i) = tm.next_to_run() {
+        let n = tm.get(TaskID::ID(i)).unwrap();
+        n.set_state(TaskState::Running);
+        Some(n.get_stk_ptr())
+    } else {
+        None
+    };
+
+    if let Some(c) = current {
+        c.update_stk_ptr(save());
+        c.set_state(TaskState::Suspended);
+    }
+
+    TASK_MAN.replace(tm);
+
+    if let Some(n) = next {
+        llvm_asm! {"
+        ldmia $0!, {r4-r11}
+        msr psp, $0
+        isb
+        mov r6, 0xFFFFFFFD
+        bx r6
+        "
+        :
+        : "r"(n)
+        : "$0", "r1", "r6"
+        : "volatile"
+        }
+    }
+}
+
+#[inline(always)]
+unsafe fn save() -> *mut u32 {
+    let mut _sp: *mut u32 = 0 as *mut u32;
+    llvm_asm! {"
+        mrs r1, psp
+        isb
+        stmdb r1!, {r4-r11}
+        mov $0, r1
+        "
+    : "=r"(_sp)
+    :
+    : "r1", "$0", "r6"
+    : "volatile"
+    }
+    _sp
 }

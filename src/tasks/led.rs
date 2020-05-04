@@ -1,10 +1,10 @@
-use crate::core::{wfe, CountDown, Hertz, Output, OutputPin, PEx, PushPull, Timer, SCB, TIM2};
-use crate::tasks::{Task, TaskState};
+use crate::core::{CountDown, Hertz, Output, OutputPin, PEx, PushPull, Timer, TIM2};
+use crate::tasks::{task_done, Task, TaskState};
 use core::cell::Cell;
 use core::mem::transmute;
 
 const STK_SIZE: usize = 512;
-const PERIOD: u32 = 21;
+const PERIOD: u32 = 31;
 static mut LED_STACK: [u32; STK_SIZE] = [0; STK_SIZE];
 
 type LedPin = PEx<Output<PushPull>>;
@@ -50,9 +50,9 @@ impl LedTask {
             .get()
             .write(transmute::<*mut LedTask, u32>(self));
         self.stk_ptr.get().offset(6).write(LedTask::run as u32);
-        // self.stk_ptr.get().offset(5).write(SCB::set_pendsv as u32);
         self.stk_ptr.get().offset(7).write(0x21000000);
         self.stk_ptr.set(self.stk_ptr.get().sub(8));
+        self.state.set(TaskState::Ready);
     }
 
     pub const fn default() -> Self {
@@ -69,20 +69,18 @@ impl LedTask {
 impl Task for LedTask {
     fn run(&mut self) {
         loop {
-            self.state.set(TaskState::Running);
             let leds = self.leds.as_mut().unwrap();
             let mut d = self.d.as_mut().unwrap();
             for l in leds.iter_mut() {
                 l.on();
-                wait(&mut d, 10);
+                wait(&mut d, 1);
             }
 
             for l in leds.iter_mut().rev() {
                 l.off();
-                wait(&mut d, 10);
+                wait(&mut d, 1);
             }
-            self.state.set(TaskState::Done);
-            SCB::set_pendsv();
+            task_done(2);
         }
     }
 
