@@ -4,7 +4,7 @@ use core::cell::Cell;
 use core::mem::transmute;
 
 const STK_SIZE: usize = 512;
-const PERIOD: u32 = 31;
+const PERIOD: u32 = 13;
 static mut LED_STACK: [u32; STK_SIZE] = [0; STK_SIZE];
 
 type LedPin = PEx<Output<PushPull>>;
@@ -72,12 +72,7 @@ impl Task for LedTask {
             let leds = self.leds.as_mut().unwrap();
             let mut d = self.d.as_mut().unwrap();
             for l in leds.iter_mut() {
-                l.on();
-                wait(&mut d, 1);
-            }
-
-            for l in leds.iter_mut().rev() {
-                l.off();
+                l.toggle();
                 wait(&mut d, 1);
             }
             task_done(2);
@@ -107,6 +102,7 @@ impl Task for LedTask {
 
 pub struct Led {
     pex: LedPin,
+    on: bool,
 }
 
 impl Led {
@@ -117,11 +113,21 @@ impl Led {
     pub fn on(&mut self) {
         self.pex.set_high().unwrap();
     }
+
+    pub fn toggle(&mut self) {
+        if self.on {
+            self.off();
+            self.on = false;
+        } else {
+            self.on();
+            self.on = true;
+        }
+    }
 }
 
 impl From<LedPin> for Led {
     fn from(pex: LedPin) -> Self {
-        Led { pex }
+        Led { pex, on: false }
     }
 }
 

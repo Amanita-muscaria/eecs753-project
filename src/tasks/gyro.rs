@@ -5,7 +5,7 @@ use core::mem::transmute;
 use f3::{hal::gpio::AF5, l3gd20::I16x3, L3gd20};
 
 const STK_SIZE: usize = 512;
-const PERIOD: u32 = 11;
+const PERIOD: u32 = 7;
 static mut GYRO_STACK: [u32; STK_SIZE] = [0; STK_SIZE];
 const BUFF_CAP: usize = 8;
 

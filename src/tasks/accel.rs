@@ -9,7 +9,7 @@ use f3::{
 };
 
 const STK_SIZE: usize = 512;
-const PERIOD: u32 = 13;
+const PERIOD: u32 = 5;
 static mut ACCEL_STACK: [u32; STK_SIZE] = [0; STK_SIZE];
 const BUFF_CAP: usize = 16;
 
