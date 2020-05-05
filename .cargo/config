@@ -8,5 +8,15 @@ rustflags = [
   "--emit", "obj"
 ]
 
+[target.thumbv7em-none-eabi]
+runner = 'arm-none-eabi-gdb'
+rustflags = [
+  "-C", "link-arg=-Tlink.x",
+  "-C", "linker=rust-lld",
+  "-Z", "thinlto=no",
+  "-Z", "macro-backtrace",
+  "--emit", "obj"
+]
+
 [build]
-target = "thumbv7em-none-eabihf"
+target = "thumbv7em-none-eabi"
